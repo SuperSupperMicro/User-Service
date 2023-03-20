@@ -1,7 +1,9 @@
-from flask import (
-Blueprint, flash, g, redirect, render_template, request, session, url_for
-)
+from flask import Blueprint, request
 import os
+import pyodbc as db
+
+from google.oauth2 import id_token
+from google.auth.transport import requests
 
 bp = Blueprint('users', __name__)
 
@@ -10,9 +12,25 @@ bp = Blueprint('users', __name__)
 def index():
     return "yes this is working, señor!"
 
-@bp.route('/items')
-def invItems():
-    import pyodbc as db
+
+@bp.post('/token_sign_in')
+def add_user():
+    idToken = request.form['idToken']
+
+    try:
+        idinfo = id_token.verify_oauth2_token(idToken, requests.Request())
+        print(idinfo)
+        userid = idinfo['sub']
+        print(userid)
+        return userid
+
+    except ValueError as e:
+        print(e)
+        return f"Error {e}"
+
+@bp.route('/items/')
+def inv_items():
+
 
     server = os.environ.get('MSSQL_ODBC_CONNECTION')
     database = os.environ.get('MSSQL_DATABASE')
