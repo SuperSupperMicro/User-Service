@@ -15,7 +15,7 @@ def index():
 
 @bp.post('/token_sign_in')
 def add_user():
-    idToken = request.form['idToken']
+    idToken = request.body['idToken']
 
     try:
         idinfo = id_token.verify_oauth2_token(idToken, requests.Request())
