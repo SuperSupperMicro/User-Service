@@ -10,3 +10,4 @@
 /venv/
 /userservice/__pycache__/
 /userservice.egg-info/
+/.DS_Store/

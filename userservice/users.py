@@ -1,20 +1,91 @@
-from flask import Blueprint, request
+from flask import Blueprint, request, current_app
+from datetime import datetime
 import os
 import pyodbc as db
+from werkzeug.exceptions import HTTPException
+from functools import wraps
+from heftytoken import makeHeftyToken, decodeHeftyToken
 
 from google.oauth2 import id_token
 from google.auth.transport import requests
 
 bp = Blueprint('users', __name__)
 
+def makeToken(identifier):
+    return makeHeftyToken(identifier, current_app.config['SECRET_KEY'])
+
+
+def admin(function):
+    @wraps(function)
+    def wrapping_function(*args, **kwargs):
+        # check if authorization header exists
+        if not 'AUthorization' in request.headers:
+            return AuthorizationRequired()
+
+        # grab header data and get token
+        hdata = request.headers['Authorization']
+        hefty_token = str.replace(str(hdata), 'Bearer ', '')
+
+        # retrieve data from token
+        token_data = decodeHeftyToken(hefty_token)
+
+        # grab token expiration from token_data
+        token_expiration = token_data['exp']
+        # convert string timestamp to datetime
+        dt = datetime.strptime(token_expiration, '%Y-%m-%dT%H:%M:%SZ')
+
+        # check if token has expired
+        if not dt > datetime.utcnow():
+            return AuthorizationRequired()
+
+        # check if token was intended for this api
+        sec = token_data['sec']
+        if sec != current_app.config['SECRET_KEY']:
+            return AuthorizationRequired()
+
+        # get user id
+        user_id = token_data['userID']
+
+        try:
+            # connect to db
+            connection = _db_connect()
+            cursor = connection.cursor()
+
+            # execute stored procedure for checking user for admin user_role
+            cursor.execute('{Call IsAdmin (?)}', (user_id))
+
+            # get bool result
+            val = cursor.fetchval()
+
+            # commit any pending sql statements on this connection and close
+            cursor.commit()
+            cursor.close()
+            del cursor
+            connection.close()
+
+            # check val for auth
+            if val != 'TRUE':
+                return AuthorizationRequired()
+
+            return function(*args, **kwargs)
+
+        except ValueError as e:
+            print(e)
+            return f"Error {e}"
+
+    return wrapping_function
+
+
+
+
+
 # MARK: - Routes
 @bp.route('/')
 def index():
     return "yes this is working, señor!"
 
-
-@bp.post('/token_sign_in')
-def add_user():
+@bp.post('/token_login')
+def login():
 
     # get token from request
     idToken = request.json
@@ -58,15 +129,14 @@ def add_user():
         del cursor
         connection.close()
 
-        return userId
+        return {"token" : makeToken(userId)}
 
     except ValueError as e:
         print(e)
         return f"Error {e}"
 
-
-
 @bp.route('/users/')
+@admin
 def all_users():
     arr = []
     try:
@@ -121,7 +191,7 @@ def get_user_by_id(user_id):
         return f"Error {e}"
 
 @bp.put('/user/<int:user_id>')
-def updateUser(user_id):
+def update_user(user_id):
     json = request.json
 
     try:
@@ -169,3 +239,10 @@ def _db_connect():
     password = os.environ.get('MSSQL_DB_PASSWORD')
 
     return db.connect('DRIVER={ODBC Driver 17 for SQL Server};SERVER=%s;DATABASE=%s;UID=%s;PWD=%s;TrustServerCertificate=yes' % (server, database, username, password))
+
+
+
+
+class AuthorizationRequired(HTTPException):
+    code = 401
+    description = 'Authorized users only'
