@@ -7,11 +7,6 @@ from google.auth.transport import requests
 
 bp = Blueprint('users', __name__)
 
-
-"""
- MARK: - Routes
-"""
-
 @bp.route('/')
 def index():
     return "See documentation for endpoint mapping!", 418
@@ -94,7 +89,7 @@ def soft_delete_user(user_id):
 @admin
 def get_current_user():
     cursor = g.cur
-    user_id = get_user_from_token(request)
+    user_id = g.uid
     cursor.execute('{Call GetUserById (?)}', user_id)
     val = cursor.fetchone()
 

@@ -1,6 +1,6 @@
-from flask import request, g, current_app
+from flask import request, g, current_app, abort
 from datetime import datetime
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import HTTPException, Unauthorized
 from functools import wraps
 from userservice.db import db_connect
 from heftytoken import makeHeftyToken, decodeHeftyToken
@@ -10,9 +10,15 @@ from heftytoken import makeHeftyToken, decodeHeftyToken
 def admin(function):
     @wraps(function)
     def wrapping_function(*args, **kwargs):
-        uid = get_user_from_token(request)
+        try:
+            uid = get_user_from_token(request)
+        except HTTPException as e:
+            return f"{e}", 401
 
-        # connect to db
+        # save the user_id
+        g.uid = uid
+
+        # connect to dbx
         cursor = db_connect()
 
         # execute stored procedure for checking user for admin user_role
@@ -35,8 +41,8 @@ def makeToken(identifier):
 
 def get_user_from_token(req):
     # check if authorization header exists
-    if not 'AUthorization' in req.headers:
-        return AuthorizationRequired()
+    if not 'Authorization' in req.headers:
+        raise Unauthorized(auth_error + 'No Authorization headers', 401)
 
     # grab header data and get token
     hdata = req.headers['Authorization']
@@ -52,16 +58,17 @@ def get_user_from_token(req):
 
     # check if token has expired
     if not dt > datetime.utcnow():
-        return AuthorizationRequired()
+        raise Unauthorized(auth_error + 'Token has expired!', 401)
 
     # check if token was intended for this api
     sec = token_data['sec']
     if sec != current_app.config['SECRET_KEY']:
-        return AuthorizationRequired()
+        raise Unauthorized(auth_error + 'Token was unable to be verified for use with this application', 401)
 
     return int(token_data['userID'])
 
+auth_error = 'Authorization required! \n'
 
-class AuthorizationRequired(HTTPException):
+class AuthorizationRequired(Unauthorized):
     code = 401
-    description = 'Authorized users only'
+    description = 'Authorized admins only'
